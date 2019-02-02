@@ -5,8 +5,9 @@ from datetime import datetime
 from wasserstein_distance import *
 
 class Dataset:
-    def __init__(self, data_rpath, daily_seeds_rpath=None, weekly_seeds_rpath=None, daily_distance_rpath=None, weekly_distance_rpath=None):
+    def __init__(self, data_rpath, daily_representation_path=None, daily_seeds_rpath=None, weekly_seeds_rpath=None, daily_distance_rpath=None, weekly_distance_rpath=None):
         self.data_rpath = data_rpath
+        self.daily_representation_path = daily_representation_path
         self.daily_seeds_rpath = daily_seeds_rpath
         self.weekly_seeds_rpath = weekly_seeds_rpath
         self.daily_distance_rpath = daily_distance_rpath
@@ -14,6 +15,7 @@ class Dataset:
         self.load_seeds()
         self.load_data()
         self.load_distance()
+        self.load_representation()
 
     def get_commit_profile(self, commits):
         commit_profile = {
@@ -51,19 +53,16 @@ class Dataset:
 
                 if 'commit_profile' not in user:
                     user['commit_profile'] = self.get_commit_profile(user['commits_list'])
-                if 'daily_rep' in user and 'weekly_rep' in user:
-                    self.rep['daily'].append(user['daily_rep'])
-                    self.rep['weekly'].append(user['weekly_rep'])
+
                 weekly = np.array(sorted(user['commit_profile']['weekly'].items(), key=lambda x: int(x[0])))[:, -1]
                 daily = np.array(sorted(user['commit_profile']['daily'].items(), key=lambda x: int(x[0])))[:, -1]
+                self.rep['weekly'] = [np.sum(weekly[:5]), np.sum(weekly[5:])]
                 self.data['daily'].append(daily.astype('float'))
                 self.data['weekly'].append(weekly.astype('float'))
                 self.users.append(user)
 
         self.data['daily'] = np.array(self.data['daily'])
         self.data['weekly'] = np.array(self.data['weekly'])
-        self.rep['daily'] = np.array(self.rep['daily'])
-        self.rep['weekly'] = np.array(self.rep['weekly'])
         self.users = np.array(self.users)
 
     def load_distance(self):
@@ -98,22 +97,18 @@ class Dataset:
         else:
             print 'Cannot load seeds from', self.weekly_seeds_rpath
             self.weekly_seed_dict = {}
+        print "daily seeds:", self.daily_seed_dict
+        print "weekly seeds:", self.weekly_seed_dict
 
-    def merge_representation(self, daily_rep_rpath, weekly_rep_rpath, wpath):
-        with open(daily_rep_rpath, 'r') as rf:
-            daily_rep = json.load(rf)
-        with open(weekly_rep_rpath, 'r') as rf:
-            weekly_rep = json.load(rf)
-
-        with open(wpath, 'w') as wf:
-            for u, daily_r, weekly_r in zip(self.users, daily_rep, weekly_rep):
-                u['daily_rep'] = daily_r
-                u['weekly_rep'] = weekly_r
-                wf.write(json.dumps(u) + '\n')
+    def load_representation(self):
+        if self.daily_representation_path:
+            with open(self.daily_representation_path, 'r') as rf:
+                self.rep['daily'] = json.load(rf)
+        self.rep['daily'] = np.array(self.rep['daily'])
 
 if __name__ == '__main__':
     print 'loading dataset...'
-    dataset = Dataset(data_rpath='data/balanced_all.json')
+    dataset = Dataset(data_rpath='../data/balanced_all.json')
 
     print 'Store user collection'
     with open('../data/collection.json', 'w') as wf:

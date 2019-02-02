@@ -4,6 +4,7 @@ import sys
 import numpy as np
 import random
 import json
+from data_processing import Dataset
 
 class Encoder:
     def __init__(self, batch_size, training_epochs, display_iter, model_path, continue_train,
@@ -78,8 +79,9 @@ class Encoder:
         # peer similarity loss
         repMat = tf.tile(tf.expand_dims(self.rep, 1), multiples=[1, self.batch_size, 1])
         repMat_t = tf.tile(tf.expand_dims(self.rep, 0), multiples=[self.batch_size, 1, 1])
-        # add relu to activate similarity - threshold
-        s = tf.nn.relu(tf.tile(tf.expand_dims(self.affinity, 2), multiples=[1, 1, self.n_rep]) - self.threshold)
+        # activate similarity with threshold
+        affinity_with_threshold = tf.where(tf.greater_equal(self.affinity, self.threshold), self.affinity, tf.zeros_like(self.affinity))
+        s = tf.tile(tf.expand_dims(affinity_with_threshold, 2), multiples=[1, 1, self.n_rep])
         # tf.select((tf.sigmoid(hid_state) > 0.5)
         self.peer_loss = tf.reduce_sum(tf.multiply(tf.square(repMat - repMat_t), s))
 
@@ -135,7 +137,7 @@ class Encoder:
                     print batch_x[0].reshape((-1))
                     print decoded[0]
                     print se, self.alpha * pl
-                    print "Epoch " + str(self.current_epoch) + ", Learning Rate = " + "{:.5f}".format(lr) + ", Average Loss = " + "{:.7f}".format(np.average(epoch_loss))
+                    print "Epoch " + str(self.current_epoch) + ", Learning Rate = " + "{:.5f}".format(lr) + ", Average Loss = " + "{:.7f}".format(np.mean(epoch_loss))
                     # set the start index to 0
                     batch_start = 0
                     step += 1
@@ -165,27 +167,24 @@ class Encoder:
 if __name__ == '__main__':
     seq = sys.argv[1]
     dataset = Dataset(data_rpath='../data/collection.json',
-                      weekday_seeds_rpath='../data/weekday_seeds.json',
-                      weekend_seeds_rpath='../data/weekend_seeds.json',
-                      weekday_distance_rpath='../data/distance_weekdays',
-                      weekend_distance_rpath='../data/distance_weekends',
+                      weekly_distance_rpath='../data/weekly_distance',
+                      daily_distance_rpath='../data/daily_distance'
                       )
 
     data = dataset.data[seq].reshape(-1, 24, 1)
     affinity = np.exp(-dataset.distance[seq] / dataset.distance[seq].std())
-
     encoder = Encoder(batch_size=256,
-                      training_epochs=2000,
+                      training_epochs=500,
                       display_iter=10,
                       model_path=seq+'_model/',
-                      init_learning_rate=0.006,
+                      init_learning_rate=0.01,
                       decay_steps=1000,
-                      decay_rate=0.925,
+                      decay_rate=0.9,
                       min_learning_rate=0.00001,
                       encoder_n_hiddens=[32, 16, 4],
                       decoder_n_hiddens=[32, 16, 4],
                       n_rep=2,
-                      threshold=np.mean(affinity),
+                      threshold=np.percentile(affinity, 80),
                       alpha=0.01,
                       continue_train=False,
                       timesteps=24,
@@ -194,6 +193,6 @@ if __name__ == '__main__':
     encoder.train(data, affinity)
     rep = encoder.get_representations(data, affinity)
 
-    with open(seq+'_encoded', 'w') as wf:
+    with open('../data/' + seq + '_encoded.json', 'w') as wf:
         json.dump(rep.tolist(), wf)
 

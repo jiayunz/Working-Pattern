@@ -9,6 +9,7 @@ from scipy.spatial import distance
 class Semi_KMedoids:
     def __init__(self, k):
         self._k = k
+        self._inertia = 0
 
     def _get_distance_matrix(self, data):
         return distance.cdist(data, data, metric='euclidean')
@@ -42,25 +43,26 @@ class Semi_KMedoids:
         return new_medoids
 
     def _update_clusters_with_medoids(self, distance, medoids, seeds):
+        rest = np.setdiff1d(range(distance.shape[0]), medoids)
         # distance[M,:]是中心点与每个点之间的距离，设axis=0表示对每一列在M行中的大小比较
-        c = np.argmin(distance[medoids, :], axis=0)
-        clusters = []
+        c = np.argmin(distance[medoids, :], axis=0)[rest]
+        clusters = [[m] for m in medoids]
         for i in xrange(self._k):
-            clusters.append(np.where(c == i)[0])
+            clusters[i] = np.concatenate([clusters[i], rest[np.where(c == i)[0]]])
 
         return clusters
 
     def _constrained_update_clusters_with_medoids(self, distance, medoids, seeds):
         # TODO: seeds必须在原始cluster中
         # distance[M,:]是中心点与每个点之间的距离，设axis=0表示对每一列在M行中的大小比较
-        unlabeled = np.setdiff1d(range(distance.shape[0]), np.concatenate(seeds))
-        c = np.argmin(distance[medoids, :], axis=0)[unlabeled]
-        clusters = [np.array([]) for _ in xrange(self._k)]
+        rest = np.setdiff1d(np.setdiff1d(range(distance.shape[0]), np.concatenate(seeds)), medoids)
+        c = np.argmin(distance[medoids, :], axis=0)[rest]
+        clusters = [[m] for m in medoids]
         for i in xrange(self._k):
             if i < len(seeds):
-                clusters[i] = np.concatenate([seeds[i], unlabeled[np.where(c == i)[0]]])
+                clusters[i] = np.concatenate([clusters[i], np.setdiff1d(seeds[i], medoids), rest[np.where(c == i)[0]]])
             else:
-                clusters[i] = unlabeled[np.where(c == i)[0]]
+                clusters[i] = np.concatenate([clusters[i], rest[np.where(c == i)[0]]])
 
         return clusters
 
@@ -81,26 +83,35 @@ class Semi_KMedoids:
         self._medoid_ids = self._init_medoids(distance, seeds)
 
         for t in xrange(max_iter):
-            clusters = self._constrained_update_clusters_with_medoids(distance, self._medoid_ids, seeds)
+            clusters = self._update_clusters_with_medoids(distance, self._medoid_ids, seeds)
             new_medoids = self._update_medoids_with_clusters(distance, clusters)
             if np.array_equal(self._medoid_ids, new_medoids):
                 break
             self._medoid_ids = np.copy(new_medoids)
         else:
             # final update of cluster memberships
-            clusters = self._constrained_update_clusters_with_medoids(distance, self._medoid_ids, seeds)
+            clusters = self._update_clusters_with_medoids(distance, self._medoid_ids, seeds)
 
+        # compute inertia: sum of squared distances of samples to their closest cluster center.
         self._labels = np.zeros([X.shape[0]])
         for i, c in enumerate(clusters):
+            self._inertia += np.sum(distance[self._medoid_ids[i]][c])
             for j in c:
                 self._labels[j] = i
 
-        self.silhouette_score = metrics.silhouette_score(X, self._labels)
+        self._silhouette_score = metrics.silhouette_score(X, self._labels)
+
         self._medoids = X[self._medoid_ids, :]
 
 if __name__ == '__main__':
-    data = np.array([[1., 2., 3., 4], [1., 2., 3., 4.], [2., 3., 4., 1.], [1., 3., 5., 4.], [3., 5., 4., 1.], [5., 4., 1., 3.], [3., 5., 4., 1.]])
+    data = np.array([[1., 2., 3., 4],
+                     [1., 2., 3., 4.],
+                     [2., 3., 4., 1.],
+                     [1., 3., 5., 4.],
+                     [3., 5., 4., 1.],
+                     [5., 4., 1., 3.],
+                     [3., 5., 4., 1.]])
     clf = Semi_KMedoids(k=3)
-    clf.fit(data, seeds=[[1],[6]])
+    clf.fit(data, seeds=[[1, 2],[4, 6]])
     print clf._medoids
     print clf._medoid_ids

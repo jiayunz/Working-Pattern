@@ -1,6 +1,4 @@
 # coding: utf-8
-from data_processing import Dataset
-import json
 import numpy as np
 from pyemd import emd
 from tqdm import tqdm
